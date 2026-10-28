@@ -13,11 +13,6 @@ jobs:
         with:
           fetch-depth: 0
           lfs: false
-      - name: Disable LFS entirely
-        run: |
-          git lfs uninstall || true
-          git lfs install --skip-smudge || true
-          [ -f .gitattributes ] && git rm -f .gitattributes || true
       - name: Git config
         run: |
           git config user.name "github-actions[bot]"
@@ -36,12 +31,21 @@ jobs:
               *) git checkout --ours -- "$f" || true ;;
             esac
           done
+      - name: Post-merge disable LFS (upstream .gitattributes re-imported)
+        run: |
+          git lfs uninstall || true
+          git lfs install --skip-smudge || true
+          rm -f .gitattributes
+          git rm -f .gitattributes || true
+          git config --unset-all lfs.url || true
+          git config lfs.transfer.enableAliases false || true
+          find .git/hooks -type f \( -name "post-checkout" -o -name "post-commit" -o -name "post-merge" -o -name "pre-push" \) -delete 2>/dev/null || true
       - name: Keep only our workflow
         run: |
           mkdir -p .github/workflows
           find .github/workflows -type f ! -name "sync-upstream.yml" -delete
       - name: Commit and push
         run: |
-          git add -f .github/workflows
+          git add -f .github/workflows .gitattributes || true
           git commit -m "chore: preserve fork sync workflow" --allow-empty
           git push
