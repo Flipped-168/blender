@@ -1,4 +1,4 @@
-name: Sync blender/blender
+name: Sync upstream
 on:
   schedule:
     - cron: '0 2 * * *'
@@ -13,22 +13,25 @@ jobs:
         with:
           fetch-depth: 0
           lfs: false
-      - name: Disable LFS smudge
-        run: git lfs install --skip-smudge || true
+      - name: Disable LFS entirely
+        run: |
+          git lfs uninstall || true
+          git lfs install --skip-smudge || true
+          [ -f .gitattributes ] && git rm -f .gitattributes || true
       - name: Git config
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-      - name: Add blender/blender
-        run: git remote add blender/blender https://github.com/blender/blender.git || true
-      - name: Fetch blender/blender
-        run: git fetch blender/blender
-      - name: Merge blender/blender (ours strategy)
+      - name: Add upstream
+        run: git remote add upstream https://github.com/blender/blender.git || true
+      - name: Fetch upstream
+        run: git fetch upstream
+      - name: Merge upstream (ours strategy)
         run: |
-          git merge blender/blender/HEAD --no-edit -X ours || git merge FETCH_HEAD --no-edit -X ours || true
+          git merge upstream/HEAD --no-edit -X ours || git merge FETCH_HEAD --no-edit -X ours || true
           git diff --name-only --diff-filter=U | while IFS= read -r f; do
             case "$f" in
-              .github/workflows/sync-blender/blender.yml) ;;
+              .github/workflows/sync-upstream.yml) ;;
               .github/workflows/*) git rm -f "$f" ;;
               *) git checkout --ours -- "$f" || true ;;
             esac
@@ -36,7 +39,7 @@ jobs:
       - name: Keep only our workflow
         run: |
           mkdir -p .github/workflows
-          find .github/workflows -type f ! -name "sync-blender/blender.yml" -delete
+          find .github/workflows -type f ! -name "sync-upstream.yml" -delete
       - name: Commit and push
         run: |
           git add -f .github/workflows
