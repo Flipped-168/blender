@@ -1347,6 +1347,13 @@ static void node_region_listener(const wmRegionListenerParams *params)
       if (wmn->data == ND_LAYOUTSET || wmn->action == NA_EDITED) {
         WM_gizmomap_tag_refresh(gzmap);
       }
+      /* If a new workspace was chosen, execute the compositor if its viewer result is visible. */
+      if (wmn->data == ND_LAYOUTSET &&
+          bke::compositor::is_compositor_viewer_visible(*params->area))
+      {
+        Scene *scene = WM_window_get_active_scene(params->window);
+        DEG_id_tag_update(&scene->id, ID_RECALC_COMPOSITOR);
+      }
       switch (wmn->data) {
         case ND_ANIMPLAY:
         case ND_LAYER:
@@ -1785,6 +1792,7 @@ void ED_spacetype_node()
 
   st->spaceid = SPACE_NODE;
   STRNCPY_UTF8(st->name, "Node");
+  st->struct_size = sizeof(SpaceNode);
 
   st->create = node_create;
   st->free = node_free;

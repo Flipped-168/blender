@@ -1497,7 +1497,7 @@ class SEQUENCER_MT_view_pie(Menu):
         pie = layout.menu_pie()
         pie.operator("sequencer.view_all")
         pie.operator("sequencer.view_selected", text="Frame Selected", icon='ZOOM_SELECTED')
-        pie.separator()
+        pie.operator("sequencer.view_frame")
         if context.sequencer_scene.use_preview_range:
             pie.operator("anim.scene_range_frame", text="Frame Preview Range")
         else:
@@ -1569,13 +1569,14 @@ class SEQUENCER_MT_modifier_add(Menu):
         else:
             self.operator_modifier_add(layout, 'BRIGHT_CONTRAST')
             self.operator_modifier_add(layout, 'COLOR_BALANCE')
-            self.operator_modifier_add(layout, 'COMPOSITOR')
             self.operator_modifier_add(layout, 'CURVES')
             self.operator_modifier_add(layout, 'HUE_CORRECT')
             self.operator_modifier_add(layout, 'MASK')
             self.operator_modifier_add(layout, 'TONEMAP')
             self.operator_modifier_add(layout, 'WHITE_BALANCE')
             layout.menu_contents("SEQUENCER_MT_modifier_add_root_catalogs")
+            layout.separator()
+            self.operator_modifier_add(layout, 'COMPOSITOR')
 
 
 class SequencerButtonsPanel:

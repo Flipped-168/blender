@@ -2,6 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-2.0-or-later
 
+import os
 import pathlib
 import sys
 import tempfile
@@ -9,6 +10,8 @@ import unittest
 
 import bpy
 
+sys.path.append(str(pathlib.Path(__file__).parent.absolute()))
+from modules.colored_print import (print_message, use_message_colors)
 
 args = None
 
@@ -17,6 +20,8 @@ class CollectionIOTestBase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.testdir = args.testdir
+        if os.environ.get("BLENDER_TEST_COLOR") is not None:
+            use_message_colors()
 
     def setUp(self):
         self._tempdir = tempfile.TemporaryDirectory()
@@ -26,9 +31,17 @@ class CollectionIOTestBase(unittest.TestCase):
                         'Test dir {0} should exist'.format(self.testdir))
         self.assertTrue(self.tempdir.exists(),
                         'Temp dir {0} should exist'.format(self.tempdir))
+        print_message(self._testMethodName, 'SUCCESS', 'RUN')
 
     def tearDown(self):
         self._tempdir.cleanup()
+
+        result = self._outcome.result
+        ok = all(test != self for test, _ in result.errors + result.failures)
+        if not ok:
+            print_message(self._testMethodName, 'FAILURE', 'FAILED')
+        else:
+            print_message(self._testMethodName, 'SUCCESS', 'PASSED')
 
     @staticmethod
     def reset_blender():
@@ -406,6 +419,60 @@ class TestCollectionImport(CollectionIOTestBase):
         self.assertEqual(len(bpy.data.collections[coll_B].all_objects), 1)
 
         self.assertEqual(len(bpy.data.libraries), 0)
+
+    def test_make_local_empty(self):
+        # Validate make_local on an empty collection.
+        self.reset_blender()
+
+        coll_A = "CollectionA"
+        coll_main = bpy.context.scene.collection
+        self.create_collections(coll_main, (coll_A, ))
+
+        # Setup the importer but do not perform any import
+        self.add_collection_importer(coll_A, "IO_FH_usd")
+        coll = bpy.data.collections[coll_A]
+        coll.importer.filepath = str(self.testdir / "import-default.usda")
+
+        # Making local should remove the importer (validated as part of below call)
+        self.make_local_collection(coll_A)
+
+    def test_library_delete(self):
+        # Validate that deleting external libraries, behind the importer's back, is handled correctly.
+        self.reset_blender()
+
+        coll_A = "CollectionA"
+        coll_main = bpy.context.scene.collection
+        self.create_collections(coll_main, (coll_A, ))
+
+        # Add a new importer and perform the import
+        self.add_collection_importer(coll_A, "IO_FH_usd")
+
+        coll = bpy.data.collections[coll_A]
+        coll.importer.filepath = str(self.testdir / "import-default.usda")
+
+        self.do_collection_import(coll_A)
+        self.assertEqual(len(bpy.data.collections[coll_A].all_objects), 4)
+        self.assertEqual(len(bpy.data.libraries), 2)
+
+        # Destroy the main external library manually, then try reloading which should succeed.
+        external_lib = next((lib for lib in bpy.data.libraries if lib.is_archive == False), None)
+        self.assertIsNotNone(external_lib)
+        bpy.data.libraries.remove(external_lib)
+        self.assertEqual(len(bpy.data.libraries), 0)
+
+        self.reload_collection_importer(coll_A)
+        self.assertEqual(len(bpy.data.collections[coll_A].all_objects), 4)
+        self.assertEqual(len(bpy.data.libraries), 2)
+
+        # Destroy the external archive library manually, then try reloading which should succeed.
+        external_archive_lib = next((lib for lib in bpy.data.libraries if lib.is_archive), None)
+        self.assertIsNotNone(external_archive_lib)
+        bpy.data.libraries.remove(external_archive_lib)
+        self.assertEqual(len(bpy.data.libraries), 1)
+
+        self.reload_collection_importer(coll_A)
+        self.assertEqual(len(bpy.data.collections[coll_A].all_objects), 4)
+        self.assertEqual(len(bpy.data.libraries), 2)
 
 
 def main():

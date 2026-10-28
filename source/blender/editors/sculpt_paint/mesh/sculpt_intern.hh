@@ -319,11 +319,6 @@ struct StrokeCache {
    * Transforms from model-space coords to local area coords.
    */
   float4x4 brush_local_mat = float4x4::zero();
-  /**
-   * The matrix from local area coords to model-space coords is used to calculate the vector
-   * displacement in area plane mode.
-   */
-  float4x4 brush_local_mat_inv = float4x4::zero();
 
   /* used to shift the plane around when doing tiled strokes */
   float3 plane_offset = float3(0);
@@ -660,26 +655,10 @@ void calc_brush_plane(const Depsgraph &depsgraph,
                       float3 &r_area_no,
                       float3 &r_area_co);
 
-std::optional<float3> calc_area_normal(const Depsgraph &depsgraph,
-                                       const Brush &brush,
-                                       const Object &ob,
-                                       const IndexMask &node_mask);
-
-/**
- * This calculates flatten center and area normal together,
- * amortizing the memory bandwidth and loop overhead to calculate both at the same time.
- */
-void calc_area_normal_and_center(const Depsgraph &depsgraph,
-                                 const Brush &brush,
-                                 const Object &ob,
-                                 const IndexMask &node_mask,
-                                 float r_area_no[3],
-                                 float r_area_co[3]);
-void calc_area_center(const Depsgraph &depsgraph,
-                      const Brush &brush,
-                      const Object &ob,
-                      const IndexMask &node_mask,
-                      float r_area_co[3]);
+std::optional<float3> sample_plane_normal(const Depsgraph &depsgraph,
+                                          const Brush &brush,
+                                          const Object &ob,
+                                          const IndexMask &node_mask);
 
 std::optional<int> nearest_vert_calc_mesh(const bke::pbvh::Tree &pbvh,
                                           Span<float3> vert_positions,
@@ -761,11 +740,11 @@ std::array<int, PAINT_SYMM_AREAS> find_all_symm_verts(
 bool node_fully_masked_or_hidden(const bke::pbvh::Node &node);
 bool node_in_sphere(const bke::pbvh::Node &node,
                     const float3 &location,
-                    float radius_sq,
+                    float radius,
                     bool original);
 bool node_in_cylinder(const DistRayAABB_Precalc &ray_dist_precalc,
                       const bke::pbvh::Node &node,
-                      float radius_sq,
+                      float radius,
                       bool original);
 /**
  * Calculates whether the node intersects a local-space volume.
@@ -792,7 +771,7 @@ IndexMask gather_nodes(const bke::pbvh::Tree &pbvh,
                        eBrushFalloffShape falloff_shape,
                        bool use_original,
                        const float3 &location,
-                       float radius_sq,
+                       float radius,
                        const std::optional<float3> &ray_direction,
                        IndexMaskMemory &memory);
 
@@ -808,12 +787,6 @@ void apply_brush_texture(PaintMode paint_mode,
                          int thread_id,
                          float *r_value,
                          float4 &r_rgba);
-
-/**
- * Calculates the vertex offset for a single vertex depending on the brush setting rgb as vector
- * displacement.
- */
-void calc_vertex_displacement(const SculptSession &ss, const Brush &brush, float translation[3]);
 
 /**
  * Tilts a normal by the x and y tilt values using the view axis.

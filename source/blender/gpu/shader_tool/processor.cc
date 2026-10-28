@@ -8,6 +8,7 @@
 
 #include <cctype>
 #include <cstdint>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <string>
@@ -296,7 +297,6 @@ SourceProcessor::Result SourceProcessor::convert_bsl()
     lower_noop_keywords_ast(parser);
     lower_trailing_comma_in_list_ast(parser);
     lower_assert_ast(parser, filename);
-    lower_this_keyword(parser);
     parser.apply_mutations();
 
     /* Lower string, assert, printf. */
@@ -467,8 +467,9 @@ void SourceProcessor::scan_external_symbols(SourceManager &sources,
   for (const auto &dep : metadata_.dependencies) {
     string file;
     for (const auto &filename : file_list_) {
-      if (filename.find(dep) != string::npos) {
+      if (std::filesystem::path(filename).filename() == dep) {
         file = filename;
+        break;
       }
     }
 
@@ -1837,6 +1838,7 @@ void SourceProcessor::lower_noop_keywords(Parser &parser)
       report_error(tok, "Expecting colon ':' after access specifier");
     }
   };
+  parser().foreach_token(Protected, process_access);
   parser().foreach_token(Private, process_access);
   parser().foreach_token(Public, process_access);
 

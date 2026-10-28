@@ -52,7 +52,7 @@
 #  include "DNA_scene_types.h"
 
 #  include "BLI_kdopbvh.hh"
-#  include "BLI_kdtree.hh"
+#  include "BLI_kdtree_new.hh"
 #  include "BLI_math_vector.hh"
 #  include "BLI_mutex.hh"
 #  include "BLI_threads.hh"
@@ -332,17 +332,17 @@ void BKE_fluid_cache_free(FluidDomainSettings *fds, Object *ob, int cache_map)
 
   if (cache_map & FLUID_DOMAIN_OUTDATED_DATA) {
     flags &= ~(FLUID_DOMAIN_BAKING_DATA | FLUID_DOMAIN_BAKED_DATA | FLUID_DOMAIN_OUTDATED_DATA);
-    BLI_path_join(temp_dir, sizeof(temp_dir), fds->cache_directory, FLUID_DOMAIN_DIR_CONFIG);
+    BLI_path_join(temp_dir, fds->cache_directory, FLUID_DOMAIN_DIR_CONFIG);
     BLI_path_abs(temp_dir, relbase);
     if (BLI_exists(temp_dir)) {
       BLI_delete(temp_dir, true, true);
     }
-    BLI_path_join(temp_dir, sizeof(temp_dir), fds->cache_directory, FLUID_DOMAIN_DIR_DATA);
+    BLI_path_join(temp_dir, fds->cache_directory, FLUID_DOMAIN_DIR_DATA);
     BLI_path_abs(temp_dir, relbase);
     if (BLI_exists(temp_dir)) {
       BLI_delete(temp_dir, true, true);
     }
-    BLI_path_join(temp_dir, sizeof(temp_dir), fds->cache_directory, FLUID_DOMAIN_DIR_SCRIPT);
+    BLI_path_join(temp_dir, fds->cache_directory, FLUID_DOMAIN_DIR_SCRIPT);
     BLI_path_abs(temp_dir, relbase);
     if (BLI_exists(temp_dir)) {
       BLI_delete(temp_dir, true, true);
@@ -351,7 +351,7 @@ void BKE_fluid_cache_free(FluidDomainSettings *fds, Object *ob, int cache_map)
   }
   if (cache_map & FLUID_DOMAIN_OUTDATED_NOISE) {
     flags &= ~(FLUID_DOMAIN_BAKING_NOISE | FLUID_DOMAIN_BAKED_NOISE | FLUID_DOMAIN_OUTDATED_NOISE);
-    BLI_path_join(temp_dir, sizeof(temp_dir), fds->cache_directory, FLUID_DOMAIN_DIR_NOISE);
+    BLI_path_join(temp_dir, fds->cache_directory, FLUID_DOMAIN_DIR_NOISE);
     BLI_path_abs(temp_dir, relbase);
     if (BLI_exists(temp_dir)) {
       BLI_delete(temp_dir, true, true);
@@ -360,7 +360,7 @@ void BKE_fluid_cache_free(FluidDomainSettings *fds, Object *ob, int cache_map)
   }
   if (cache_map & FLUID_DOMAIN_OUTDATED_MESH) {
     flags &= ~(FLUID_DOMAIN_BAKING_MESH | FLUID_DOMAIN_BAKED_MESH | FLUID_DOMAIN_OUTDATED_MESH);
-    BLI_path_join(temp_dir, sizeof(temp_dir), fds->cache_directory, FLUID_DOMAIN_DIR_MESH);
+    BLI_path_join(temp_dir, fds->cache_directory, FLUID_DOMAIN_DIR_MESH);
     BLI_path_abs(temp_dir, relbase);
     if (BLI_exists(temp_dir)) {
       BLI_delete(temp_dir, true, true);
@@ -370,7 +370,7 @@ void BKE_fluid_cache_free(FluidDomainSettings *fds, Object *ob, int cache_map)
   if (cache_map & FLUID_DOMAIN_OUTDATED_PARTICLES) {
     flags &= ~(FLUID_DOMAIN_BAKING_PARTICLES | FLUID_DOMAIN_BAKED_PARTICLES |
                FLUID_DOMAIN_OUTDATED_PARTICLES);
-    BLI_path_join(temp_dir, sizeof(temp_dir), fds->cache_directory, FLUID_DOMAIN_DIR_PARTICLES);
+    BLI_path_join(temp_dir, fds->cache_directory, FLUID_DOMAIN_DIR_PARTICLES);
     BLI_path_abs(temp_dir, relbase);
     if (BLI_exists(temp_dir)) {
       BLI_delete(temp_dir, true, true);
@@ -379,7 +379,7 @@ void BKE_fluid_cache_free(FluidDomainSettings *fds, Object *ob, int cache_map)
   }
   if (cache_map & FLUID_DOMAIN_OUTDATED_GUIDE) {
     flags &= ~(FLUID_DOMAIN_BAKING_GUIDE | FLUID_DOMAIN_BAKED_GUIDE | FLUID_DOMAIN_OUTDATED_GUIDE);
-    BLI_path_join(temp_dir, sizeof(temp_dir), fds->cache_directory, FLUID_DOMAIN_DIR_GUIDE);
+    BLI_path_join(temp_dir, fds->cache_directory, FLUID_DOMAIN_DIR_GUIDE);
     BLI_path_abs(temp_dir, relbase);
     if (BLI_exists(temp_dir)) {
       BLI_delete(temp_dir, true, true);
@@ -1475,7 +1475,7 @@ static void update_obstacles(Depsgraph *depsgraph,
 
 struct EmitFromParticlesData {
   FluidFlowSettings *ffs;
-  KDTree<float3> *tree;
+  const KDTree<float3> *tree;
 
   FluidObjectBB *bb;
   float *particle_vel;
@@ -1500,18 +1500,19 @@ static void emit_from_particles_task_cb(void *__restrict userdata,
       const float ray_start[3] = {float(x) + 0.5f, float(y) + 0.5f, float(z) + 0.5f};
 
       /* Find particle distance from the kdtree. */
-      KDTreeNearest<float3> nearest;
       const float range = data->solid + data->smooth;
-      kdtree_find_nearest<float3>(data->tree, ray_start, &nearest);
+      float nearest_dist_sq;
+      const int nearest_index = data->tree->find_nearest(ray_start, &nearest_dist_sq);
+      const float nearest_dist = std::sqrt(nearest_dist_sq);
 
-      if (nearest.dist < range) {
-        bb->influence[index] = (nearest.dist < data->solid) ?
+      if (nearest_dist < range) {
+        bb->influence[index] = (nearest_dist < data->solid) ?
                                    1.0f :
-                                   (1.0f - (nearest.dist - data->solid) / data->smooth);
+                                   (1.0f - (nearest_dist - data->solid) / data->smooth);
         /* Uses particle velocity as initial velocity for smoke. */
         if (ffs->flags & FLUID_FLOW_INITVELOCITY && (ffs->psys->part->phystype != PART_PHYS_NO)) {
           madd_v3_v3fl(
-              &bb->velocity[index * 3], &data->particle_vel[nearest.index * 3], ffs->vel_multi);
+              &bb->velocity[index * 3], &data->particle_vel[nearest_index * 3], ffs->vel_multi);
         }
       }
     }
@@ -1541,7 +1542,6 @@ static void emit_from_particles(Object *flow_ob,
     /* radius based flow */
     const float solid = ffs->particle_size * 0.5f;
     const float smooth = 0.5f; /* add 0.5 cells of linear falloff to reduce aliasing */
-    KDTree<float3> *tree = nullptr;
 
     sim.depsgraph = depsgraph;
     sim.scene = scene;
@@ -1566,7 +1566,6 @@ static void emit_from_particles(Object *flow_ob,
 
     /* setup particle radius emission if enabled */
     if (ffs->flags & FLUID_FLOW_USE_PART_SIZE) {
-      tree = kdtree_new<float3>(psys->totpart + psys->totchild);
       bounds_margin = int(ceil(solid + smooth));
     }
 
@@ -1603,10 +1602,6 @@ static void emit_from_particles(Object *flow_ob,
       vel = &particle_vel[valid_particles * 3];
       copy_v3_v3(vel, state.vel);
       mul_mat3_m4_v3(fds->imat, &particle_vel[valid_particles * 3]);
-
-      if (ffs->flags & FLUID_FLOW_USE_PART_SIZE) {
-        kdtree_insert<float3>(tree, valid_particles, pos);
-      }
 
       /* calculate emission map bounds */
       bb_boundInsert(bb, pos);
@@ -1658,11 +1653,12 @@ static void emit_from_particles(Object *flow_ob,
         res[i] = bb->res[i];
       }
 
-      kdtree_balance<float3>(tree);
+      const KDTree<float3> tree(
+          Span(reinterpret_cast<const float3 *>(particle_pos), valid_particles));
 
       EmitFromParticlesData data{};
       data.ffs = ffs;
-      data.tree = tree;
+      data.tree = &tree;
       data.bb = bb;
       data.particle_vel = particle_vel;
       data.min = min;
@@ -1675,10 +1671,6 @@ static void emit_from_particles(Object *flow_ob,
       BLI_parallel_range_settings_defaults(&settings);
       settings.min_iter_per_thread = 2;
       BLI_task_parallel_range(min[2], max[2], &data, emit_from_particles_task_cb, &settings);
-    }
-
-    if (ffs->flags & FLUID_FLOW_USE_PART_SIZE) {
-      kdtree_free<float3>(tree);
     }
 
     /* free data */
@@ -2329,13 +2321,17 @@ static void adaptive_domain_adjust(
   }
 
   if (res_changed || shift_changed) {
+    int o_res[3];
+    copy_v3_v3_int(o_res, fds->res);
+    /* The new fluid object sizes its guiding grid from the domain resolution. */
+    copy_v3_v3_int(fds->res, res);
+
     BKE_fluid_reallocate_copy_fluid(
-        fds, fds->res, res, fds->res_min, min, fds->res_max, temp_shift, total_shift);
+        fds, o_res, res, fds->res_min, min, fds->res_max, temp_shift, total_shift);
 
     /* set new domain dimensions */
     copy_v3_v3_int(fds->res_min, min);
     copy_v3_v3_int(fds->res_max, max);
-    copy_v3_v3_int(fds->res, res);
     fds->total_cells = total_cells;
 
     /* Redo adapt time step in manta to refresh solver state (ie time variables) */
@@ -4795,9 +4791,8 @@ void BKE_fluid_modifier_create_type_data(FluidModifierData *fmd)
     fmd->domain->fluid_mutex = BLI_rw_mutex_alloc();
 
     char cache_name[64];
-    BKE_fluid_cache_new_name_for_current_session(sizeof(cache_name), cache_name);
-    BKE_modifier_path_init(
-        fmd->domain->cache_directory, sizeof(fmd->domain->cache_directory), cache_name);
+    BKE_fluid_cache_new_name_for_current_session(cache_name);
+    BKE_modifier_path_init(fmd->domain->cache_directory, cache_name);
 
     /* pointcache options */
     fmd->domain->point_cache[0] = BKE_ptcache_add(&(fmd->domain->ptcaches[0]));
@@ -5066,10 +5061,10 @@ void BKE_fluid_modifier_copy(const FluidModifierData *fmd, FluidModifierData *tf
   }
 }
 
-void BKE_fluid_cache_new_name_for_current_session(int maxlen, char *r_name)
+void BKE_fluid_cache_new_name_for_current_session(MutableCStr r_name)
 {
   static int counter = 1;
-  BLI_snprintf(r_name, maxlen, FLUID_DOMAIN_DIR_DEFAULT "_%x", BLI_hash_int(counter));
+  SNPRINTF(r_name, FLUID_DOMAIN_DIR_DEFAULT "_%x", BLI_hash_int(counter));
   counter++;
 }
 

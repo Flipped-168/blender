@@ -4300,7 +4300,7 @@ static void reorder_attribute_domain(bke::AttributeStorage &data,
     switch (attr.storage_type()) {
       case bke::AttrStorageType::Array: {
         GArray<> new_data(type, new_by_old_map.size());
-        bke::attribute_math::gather(
+        array_utils::gather(
             std::get<GSpan>(attr.data().values()), new_by_old_map, new_data.as_mutable_span());
         attr.assign_data(bke::GList(std::move(new_data)));
         break;
@@ -4599,22 +4599,19 @@ void GreasePencil::rename_node(Main &bmain,
 
     /* Update the layer name of the influence data of the modifiers. */
     for (ModifierData &md : object.modifiers) {
-      char *dst_layer_name = nullptr;
-      size_t dst_layer_name_maxncpy = 0;
+      MutableCStr dst_layer_name;
       /* LineArt doesn't use the `GreasePencilModifierInfluenceData` struct. */
       if (md.type == eModifierType_GreasePencilLineart) {
         auto *lmd = reinterpret_cast<GreasePencilLineartModifierData *>(&md);
-        dst_layer_name = lmd->target_layer;
-        dst_layer_name_maxncpy = sizeof(lmd->target_layer);
+        dst_layer_name = MutableCStr(lmd->target_layer);
       }
       else if (GreasePencilModifierInfluenceData *influence_data = influence_data_from_modifier(
                    &md))
       {
-        dst_layer_name = influence_data->layer_name;
-        dst_layer_name_maxncpy = sizeof(influence_data->layer_name);
+        dst_layer_name = MutableCStr(influence_data->layer_name);
       }
-      if (dst_layer_name && STREQ(dst_layer_name, old_name.c_str())) {
-        BLI_strncpy(dst_layer_name, node.name().c_str(), dst_layer_name_maxncpy);
+      if (!dst_layer_name.is_empty() && STREQ(dst_layer_name.data(), old_name.c_str())) {
+        STRNCPY(dst_layer_name, node.name().c_str());
       }
     }
   }
@@ -4796,13 +4793,36 @@ bke::MutableAttributeAccessor GreasePencil::attributes_for_write()
 /** \name Drawing array read/write functions
  * \{ */
 
+static size_t drawing_struct_size(const GreasePencilDrawingType type)
+{
+  switch (type) {
+    case GP_DRAWING:
+      return sizeof(GreasePencilDrawing);
+    case GP_DRAWING_REFERENCE:
+      return sizeof(GreasePencilDrawingReference);
+  }
+  return sizeof(GreasePencilDrawingBase);
+}
+
 static void read_drawing_array(GreasePencil &grease_pencil, BlendDataReader *reader)
 {
   BLO_read_pointer_array_and_validate_size(
       reader, &grease_pencil.drawing_array, &grease_pencil.drawing_array_num);
   for (int i = 0; i < grease_pencil.drawing_array_num; i++) {
-    BLO_read_struct(reader, GreasePencilDrawingBase, &grease_pencil.drawing_array[i]);
+    BLO_read_struct_with_type_size<GreasePencilDrawingBase>(
+        reader, &grease_pencil.drawing_array[i], [](const GreasePencilDrawingBase &drawing) {
+          return drawing_struct_size(GreasePencilDrawingType(drawing.type));
+        });
     GreasePencilDrawingBase *drawing_base = grease_pencil.drawing_array[i];
+
+    /* Replace drawings that failed to read from corrupt files by an empty drawing, since further
+     * reading code expects valid drawings. */
+    if (drawing_base == nullptr) {
+      grease_pencil.drawing_array[i] = reinterpret_cast<GreasePencilDrawingBase *>(
+          MEM_new<bke::greasepencil::Drawing>(__func__));
+      continue;
+    }
+
     switch (GreasePencilDrawingType(drawing_base->type)) {
       case GP_DRAWING: {
         GreasePencilDrawing *drawing = reinterpret_cast<GreasePencilDrawing *>(drawing_base);
@@ -4898,6 +4918,17 @@ static void read_layer(BlendDataReader *reader,
   node->wrap().update_from_dna_read();
 }
 
+static size_t layer_tree_node_struct_size(const GreasePencilLayerTreeNodeType type)
+{
+  switch (type) {
+    case GP_LAYER_TREE_LEAF:
+      return sizeof(GreasePencilLayer);
+    case GP_LAYER_TREE_GROUP:
+      return sizeof(GreasePencilLayerTreeGroup);
+  }
+  return sizeof(GreasePencilLayerTreeNode);
+}
+
 static void read_layer_tree_group(BlendDataReader *reader,
                                   GreasePencilLayerTreeGroup *node,
                                   GreasePencilLayerTreeGroup *parent)
@@ -4905,7 +4936,10 @@ static void read_layer_tree_group(BlendDataReader *reader,
   BLO_read_string(reader, &node->base.name);
   node->base.parent = parent;
   /* Read list of children. */
-  BLO_read_struct_list(reader, GreasePencilLayerTreeNode, &node->children);
+  BLO_read_struct_list_with_type_size<GreasePencilLayerTreeNode>(
+      reader, &node->children, [](const GreasePencilLayerTreeNode &child) {
+        return layer_tree_node_struct_size(child.type);
+      });
   for (GreasePencilLayerTreeNode &child : node->children) {
     switch (child.type) {
       case GP_LAYER_TREE_LEAF: {
@@ -4936,9 +4970,9 @@ static void read_layer_tree(GreasePencil &grease_pencil, BlendDataReader *reader
     grease_pencil.set_active_node(nullptr);
     return;
   }
-  /* Read active layer. */
-  BLO_read_struct(reader, GreasePencilLayerTreeNode, &grease_pencil.active_node);
   read_layer_tree_group(reader, grease_pencil.root_group_ptr, nullptr);
+  /* Read active layer after the tree, so it is null if its node failed to read. */
+  BLO_read_struct(reader, GreasePencilLayerTreeNode, &grease_pencil.active_node);
 
   grease_pencil.root_group_ptr->wrap().update_from_dna_read();
 }

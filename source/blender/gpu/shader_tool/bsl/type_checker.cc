@@ -335,7 +335,7 @@ struct ExpressionTypeParser
                         ConstexprValue(std::bit_cast<int32_t>(res.value.comp_cast<float>(0)))};
               }
               if (fn->identifier == "uintBitsToFloat") {
-                return {table->uint_cls,
+                return {table->float_cls,
                         ConstexprValue(std::bit_cast<float>(res.value.comp_cast<uint32_t>(0)))};
               }
               if (fn->identifier == "intBitsToFloat") {
@@ -405,6 +405,10 @@ struct ExpressionTypeParser
 
   ExpressionResult member(ExpressionResult left, const ast::Node &t)
   {
+    if (t.type() == ast::NodeType::OpDeref && !left.is_ptr) {
+      error(t, Diag::OperatorInvalidPointer, left.type->original);
+    }
+
     SymbolClass *l = left.type;
     ast::Node right = consume();
     switch (right.type()) {
@@ -449,6 +453,12 @@ struct ExpressionTypeParser
   {
     /* Subscript operator. */
     if (ast::Subscript sub = t; sub.is_valid()) {
+      if (left.is_ptr) {
+        /* TODO(fclem): Check for 'this' somehow. */
+        left.is_ptr = false;
+        return left;
+      }
+
       if (left.array_dim > 0) {
         ExpressionResult arg = subscript_parameter(sub);
 
@@ -495,6 +505,20 @@ struct ExpressionTypeParser
     }
 
     TokenType op_type = t.front().type();
+    if (op_type == '*') {
+      if (right.is_ptr) {
+        /* Dereference operator is only used/allowed on this.
+         * Make it a noop since `this` is converted to a reference in codegen. */
+        right.is_ptr = false;
+        return right;
+      }
+      error(t, Diag::OperatorInvalidIndirection, right.type->original);
+    }
+
+    if (right.is_ptr) {
+      error(t, Diag::PointerArithmetic);
+      return table->err_cls;
+    }
 
     ClassId type_id = unary_prefix_operator_return_type(op_type, right.type);
     if (type_id == builtin::Invalid) {
@@ -549,6 +573,11 @@ struct ExpressionTypeParser
     using namespace builtin;
     if (left.array_dim > 0) {
       error(node, Diag::ArrayTypeOperand);
+      return table->err_cls;
+    }
+
+    if (left.is_ptr) {
+      error(t, Diag::PointerArithmetic);
       return table->err_cls;
     }
 
@@ -608,6 +637,11 @@ struct ExpressionTypeParser
 
     if (lhs.array_dim > 0 || rhs.array_dim > 0) {
       error(node, Diag::ArrayTypeOperand);
+      return table->err_cls;
+    }
+
+    if (lhs.is_ptr || rhs.is_ptr) {
+      error(t, Diag::PointerArithmetic);
       return table->err_cls;
     }
 
@@ -767,7 +801,7 @@ struct ExpressionTypeParser
 
   TokenType peek() const
   {
-    return node.is_valid() ? node.front().type() : Invalid;
+    return node.is_valid() ? to_type(node) : Invalid;
   }
 
   ast::Node consume()
@@ -780,11 +814,17 @@ struct ExpressionTypeParser
   TokenType to_type(const ast::Node &t) const
   {
     ast::NodeType type = t.type();
-    return type != ast::NodeType::Invalid ?
-               (type == ast::NodeType::IdQualified || type == ast::NodeType::FuncCall ?
-                    Word :
-                    t.front().type()) :
-               Invalid;
+    switch (type) {
+      case ast::NodeType::Invalid:
+        return Invalid;
+      case ast::NodeType::IdQualified:
+      case ast::NodeType::FuncCall:
+        return Word;
+      case ast::NodeType::OpDeref:
+        return Deref;
+      default:
+        return t.front().type();
+    }
   }
 
  private:

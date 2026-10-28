@@ -28,6 +28,7 @@ set(SRC
   intern/draw_cache_extract_mesh.cc
   intern/draw_cache_extract_mesh_render_data.cc
   intern/mesh_extractors/extract_mesh.cc
+  intern/mesh_extractors/extract_mesh_compress_gpu.cc
   intern/mesh_extractors/extract_mesh_corner_gpu.cc
   intern/mesh_extractors/extract_mesh_ibo_edituv.cc
   intern/mesh_extractors/extract_mesh_ibo_fdots.cc
@@ -180,6 +181,7 @@ set(SRC
   intern/draw_manager.hh
   intern/draw_manager_text.hh
   intern/draw_pass.hh
+  intern/draw_pbvh_allocator.hh
   intern/draw_pointcloud_private.hh
   intern/draw_resource.hh
   intern/draw_sculpt.hh
@@ -353,6 +355,7 @@ set(SHADER_SRC_DRAW
   intern/shaders/draw_intersect.bsl.hh
   intern/shaders/draw_math_geom.bsl.hh
   intern/shaders/draw_mesh_to_corner.bsl.hh
+  intern/shaders/draw_mesh_compress.bsl.hh
   intern/shaders/draw_model_lib.glsl
   intern/shaders/draw_model.bsl.hh
   intern/shaders/draw_object_infos_lib.glsl
@@ -549,7 +552,6 @@ set(SHADER_SRC_OVERLAY
   engines/overlay/shaders/infos/overlay_sculpt_curves_infos.hh
   engines/overlay/shaders/infos/overlay_sculpt_infos.hh
   engines/overlay/shaders/infos/overlay_viewer_attribute_infos.hh
-  engines/overlay/shaders/infos/overlay_volume_infos.hh
   engines/overlay/shaders/infos/overlay_wireframe_infos.hh
 
   engines/overlay/shaders/overlay_antialiasing.bsl.hh
@@ -647,8 +649,7 @@ set(SHADER_SRC_OVERLAY
   engines/overlay/shaders/overlay_viewer_attribute_frag.glsl
   engines/overlay/shaders/overlay_viewer_attribute_mesh_vert.glsl
   engines/overlay/shaders/overlay_viewer_attribute_pointcloud_vert.glsl
-  engines/overlay/shaders/overlay_volume_gridlines_vert.glsl
-  engines/overlay/shaders/overlay_volume_velocity_vert.glsl
+  engines/overlay/shaders/overlay_volume.bsl.hh
   engines/overlay/shaders/overlay_wireframe_frag.glsl
   engines/overlay/shaders/overlay_wireframe_vert.glsl
   engines/overlay/shaders/overlay_xray_fade.bsl.hh

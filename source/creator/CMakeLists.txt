@@ -549,6 +549,19 @@ if(WITH_PYTHON)
     )
   endif()
 
+  if(WITH_KTX)
+    if(GLTF_BRIDGE_RPATH)
+      set_target_properties(bf_intern_ktx_bridge PROPERTIES
+        BUILD_WITH_INSTALL_RPATH TRUE
+        INSTALL_RPATH "${GLTF_BRIDGE_RPATH}"
+      )
+    endif()
+    install(
+      PROGRAMS $<TARGET_FILE:bf_intern_ktx_bridge>
+      DESTINATION ${GLTF_BRIDGE_INSTALL_DIR}
+    )
+  endif()
+
   unset(GLTF_BRIDGE_INSTALL_DIR)
   unset(GLTF_BRIDGE_RPATH)
 
@@ -1596,8 +1609,7 @@ elseif(WIN32)
 
   endif()
 
-  # Filenames change slightly between FFMPEG versions check both 6.0 and fallback to 5.0
-  # to ease the transition between versions.
+  # Install the DLLs matching the bundled FFmpeg 7.1 or 8.x libraries.
   if(EXISTS "${LIBDIR}/ffmpeg/lib/avfilter-10.dll")
     windows_install_shared_manifest(
       FILES
@@ -1626,28 +1638,6 @@ elseif(WIN32)
         ${LIBDIR}/ffmpeg/lib/avutil-59.dll
         ${LIBDIR}/ffmpeg/lib/swscale-8.dll
         ${LIBDIR}/ffmpeg/lib/swresample-5.dll
-      ALL
-    )
-  elseif(EXISTS "${LIBDIR}/ffmpeg/lib/avcodec-60.dll")
-    windows_install_shared_manifest(
-      FILES
-        ${LIBDIR}/ffmpeg/lib/avcodec-60.dll
-        ${LIBDIR}/ffmpeg/lib/avformat-60.dll
-        ${LIBDIR}/ffmpeg/lib/avdevice-60.dll
-        ${LIBDIR}/ffmpeg/lib/avutil-58.dll
-        ${LIBDIR}/ffmpeg/lib/swscale-7.dll
-        ${LIBDIR}/ffmpeg/lib/swresample-4.dll
-      ALL
-    )
-  else()
-    windows_install_shared_manifest(
-      FILES
-        ${LIBDIR}/ffmpeg/lib/avcodec-59.dll
-        ${LIBDIR}/ffmpeg/lib/avformat-59.dll
-        ${LIBDIR}/ffmpeg/lib/avdevice-59.dll
-        ${LIBDIR}/ffmpeg/lib/avutil-57.dll
-        ${LIBDIR}/ffmpeg/lib/swscale-6.dll
-        ${LIBDIR}/ffmpeg/lib/swresample-4.dll
       ALL
     )
   endif()
@@ -1723,6 +1713,11 @@ elseif(WIN32)
   windows_install_shared_manifest(
     FILES ${LIBDIR}/draco/bin/draco_d.dll
     DEBUG
+  )
+
+  windows_install_shared_manifest(
+    FILES ${LIBDIR}/ktx/bin/ktx.dll
+    ALL
   )
 
   windows_install_shared_manifest(

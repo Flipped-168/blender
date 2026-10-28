@@ -160,7 +160,13 @@ class Context : public compositor::Context {
 
   compositor::Domain get_compositing_domain() const override
   {
-    return compositor::Domain(this->get_render_size());
+    compositor::Domain domain = compositor::Domain(this->get_render_size());
+    if (flag_is_set(this->get_render_data().compositor_proxy_flags,
+                    CompositorProxyFlags::AdaptToRenderScale))
+    {
+      domain.pixel_size = float2(this->get_render_data().size / 100.0f);
+    }
+    return domain;
   }
 
   void write_output_image(const compositor::Result &result)
@@ -557,6 +563,8 @@ class Context : public compositor::Context {
       pass_data.release();
     }
 
+    pass.domain() = this->get_compositing_domain();
+
     /* We assume the given pass is a Cryptomatte pass and retrieve its layer name. If it wasn't a
      * Cryptomatte pass, the checks below will fail anyway. */
     const std::string combined_pass_name = std::string(view_layer->name) + "." + pass_name;
@@ -573,25 +581,25 @@ class Context : public compositor::Context {
     BKE_stamp_info_callback(
         &callback_data,
         render_result->stamp_data,
-        [](void *user_data, const char *key, char *value, int /*value_maxncpy*/) {
+        [](void *user_data, const char *key, MutableCStr value) {
           StampCallbackData *data = static_cast<StampCallbackData *>(user_data);
 
           const std::string manifest_key = bke::cryptomatte::BKE_cryptomatte_meta_data_key(
               data->cryptomatte_layer_name, "manifest");
           if (key == manifest_key) {
-            data->meta_data->cryptomatte.manifest = value;
+            data->meta_data->cryptomatte.manifest = value.data();
           }
 
           const std::string hash_key = bke::cryptomatte::BKE_cryptomatte_meta_data_key(
               data->cryptomatte_layer_name, "hash");
           if (key == hash_key) {
-            data->meta_data->cryptomatte.hash = value;
+            data->meta_data->cryptomatte.hash = value.data();
           }
 
           const std::string conversion_key = bke::cryptomatte::BKE_cryptomatte_meta_data_key(
               data->cryptomatte_layer_name, "conversion");
           if (key == conversion_key) {
-            data->meta_data->cryptomatte.conversion = value;
+            data->meta_data->cryptomatte.conversion = value.data();
           }
         },
         false);

@@ -34,7 +34,7 @@ void context_path_add_generic(Vector<ContextPathItem> &path,
 
   PointerRNA rna_ptr = RNA_pointer_create_discrete(nullptr, &rna_type, ptr);
   char name_buf[128], *name;
-  name = RNA_struct_name_get_alloc(&rna_ptr, name_buf, sizeof(name_buf), nullptr);
+  name = RNA_struct_name_get_alloc(&rna_ptr, name_buf, nullptr);
 
   /* Use a blank icon by default to check whether to retrieve it automatically from the type. */
   const BIFIconID icon = icon_override == ICON_NONE ? RNA_struct_ui_icon(rna_ptr.type) :
@@ -69,7 +69,7 @@ void template_breadcrumbs(Layout &layout, Span<ContextPathItem> context_path)
     int icon = context_path[i].icon;
     std::string name = context_path[i].name;
     if (context_path[i].handle_func) {
-      /* Pulldown adds more left padding to icons, making them misalign with label icons. */
+      /* Pull-down adds more left padding to icons, making them misaligned with label icons. */
       sub_row.emboss_set(EmbossType::Pulldown);
       but = sub_row.button(name.c_str(), icon, context_path[i].handle_func);
     }

@@ -637,14 +637,14 @@ static void rna_userdef_extension_repo_custom_directory_set(PointerRNA *ptr, con
 static void rna_userdef_extension_repo_directory_get(PointerRNA *ptr, char *value)
 {
   const bUserExtensionRepo *repo = static_cast<bUserExtensionRepo *>(ptr->data);
-  BKE_preferences_extension_repo_dirpath_get(repo, value, FILE_MAX);
+  BKE_preferences_extension_repo_dirpath_get(repo, MutableCStr(value, FILE_MAX));
 }
 
 static int rna_userdef_extension_repo_directory_length(PointerRNA *ptr)
 {
   const bUserExtensionRepo *repo = static_cast<bUserExtensionRepo *>(ptr->data);
   char dirpath[FILE_MAX];
-  return BKE_preferences_extension_repo_dirpath_get(repo, dirpath, sizeof(dirpath));
+  return BKE_preferences_extension_repo_dirpath_get(repo, dirpath);
 }
 
 static void rna_userdef_extension_repo_access_token_get(PointerRNA *ptr, char *value)
@@ -959,6 +959,13 @@ static void rna_userdef_window_csd_params_update(Main *bmain, Scene *scene, Poin
 #  ifdef WITH_GHOST_CSD
   WM_window_csd_params_update();
 #  endif
+  rna_userdef_update(bmain, scene, ptr);
+}
+
+static void rna_userdef_anisotropic_update(Main *bmain, Scene *scene, PointerRNA *ptr)
+{
+  /* The anisotropic filtering level is set on textures when they are created. */
+  BKE_image_free_all_gpu_texture_caches(bmain);
   rna_userdef_update(bmain, scene, ptr);
 }
 
@@ -5529,7 +5536,7 @@ static void rna_def_userdef_view(BlenderRNA *brna)
   prop = RNA_def_property(srna, "header_align", PROP_ENUM, PROP_NONE);
   RNA_def_property_enum_items(prop, header_align_items);
   RNA_def_property_enum_bitflag_sdna(prop, nullptr, "uiflag");
-  RNA_def_property_enum_default(prop, USER_HEADER_FROM_PREF | USER_HEADER_BOTTOM);
+  RNA_def_property_enum_default(prop, 0);
   RNA_def_property_ui_text(prop, "Header Position", "Default header position for new space-types");
   RNA_def_property_update(prop, 0, "rna_userdef_screen_update_header_default");
 
@@ -6509,7 +6516,7 @@ static void rna_def_userdef_system(BlenderRNA *brna)
   RNA_def_property_enum_sdna(prop, nullptr, "anisotropic_filter");
   RNA_def_property_enum_items(prop, anisotropic_items);
   RNA_def_property_ui_text(prop, "Anisotropic Filtering", "Quality of anisotropic filtering");
-  RNA_def_property_update(prop, 0, "rna_userdef_update");
+  RNA_def_property_update(prop, 0, "rna_userdef_anisotropic_update");
 
   prop = RNA_def_property(srna, "gl_texture_limit", PROP_ENUM, PROP_NONE);
   RNA_def_property_enum_sdna(prop, nullptr, "glreslimit");
@@ -6630,6 +6637,7 @@ static void rna_def_userdef_system(BlenderRNA *brna)
 
   prop = RNA_def_property(srna, "network_timeout", PROP_INT, PROP_UNSIGNED);
   RNA_def_property_int_sdna(prop, nullptr, "network_timeout");
+  RNA_def_property_int_default(prop, 10);
   RNA_def_property_ui_text(
       prop,
       "Network Timeout",
@@ -6638,6 +6646,7 @@ static void rna_def_userdef_system(BlenderRNA *brna)
 
   prop = RNA_def_property(srna, "network_connection_limit", PROP_INT, PROP_UNSIGNED);
   RNA_def_property_int_sdna(prop, nullptr, "network_connection_limit");
+  RNA_def_property_int_default(prop, 5);
   RNA_def_property_ui_text(
       prop,
       "Network Connection Limit",
@@ -8190,7 +8199,6 @@ void RNA_def_userdef(BlenderRNA *brna)
   RNA_def_struct_ui_text(srna, "Preferences", "Global preferences");
 
   prop = RNA_def_property(srna, "active_section", PROP_ENUM, PROP_NONE);
-  RNA_def_property_flag(prop, PROP_ENUM_NO_CONTEXT);
   RNA_def_property_enum_sdna(prop, nullptr, "space_data.section_active");
   RNA_def_property_enum_items(prop, rna_enum_preference_section_items);
   RNA_def_property_enum_funcs(prop, nullptr, nullptr, "rna_UseDef_active_section_itemf");

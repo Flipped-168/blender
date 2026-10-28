@@ -46,7 +46,7 @@ void DRW_gsplat_module_free(GSplatModule *gsplat_module)
 namespace detail {
 
 /** Perform batched compute dispatches to stay below GPU_max_work_group_count.  */
-void batched_dispatch(const int invocs_count, PassSimple::Sub &pass)
+static void batched_dispatch(const int invocs_count, PassSimple::Sub &pass)
 {
   const int64_t max_invocs_per_dispatch = int64_t(GPU_max_work_group_count(0)) *
                                           DRW_GSPLAT_GROUP_SIZE;
@@ -125,9 +125,6 @@ Batch *draw_subpass_setup(PassT &sub_ps,
                       is_empty ? &module.dummy_vbo : cache.ellipses_comp_buf_get());
   sub_ps.bind_texture("radiance_comp_tx",
                       is_empty ? &module.dummy_vbo : cache.radiance_comp_buf_get());
-
-  float2 viewport_size = DRW_context_get()->viewport_size_get();
-  sub_ps.push_constant("viewport_size", viewport_size);
 
   if (gpu_material != nullptr) {
     ListBaseT<GPUMaterialAttribute> gpu_attrs = GPU_material_attributes(gpu_material);

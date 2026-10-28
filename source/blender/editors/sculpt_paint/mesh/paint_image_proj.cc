@@ -6285,7 +6285,7 @@ void *paint_proj_new_stroke(bContext *C,
   ps_handle->orig_brush_size = BKE_brush_size_get(ps_handle->paint, ps_handle->brush);
 
   Mesh *mesh = BKE_mesh_from_object(ob);
-  ps_handle->symmetry_flags = mesh->symmetry;
+  ps_handle->symmetry_flags = mesh->symmetry & ME_SYMMETRY_XYZ;
   ps_handle->ps_views_tot = 1 + (pow_i(2, count_bits_i(ps_handle->symmetry_flags)) - 1);
   const bool is_multi_view = (ps_handle->ps_views_tot != 1);
 
@@ -7155,13 +7155,11 @@ static wmOperatorStatus texture_paint_add_texture_paint_slot_exec(bContext *C, w
 
 static void get_default_texture_layer_name_for_object(Object *ob,
                                                       int texture_type,
-                                                      char *dst,
-                                                      int dst_maxncpy)
+                                                      MutableCStr dst)
 {
   Material *ma = BKE_object_material_get(ob, ob->actcol);
   const char *base_name = ma ? &ma->id.name[2] : &ob->id.name[2];
-  BLI_snprintf_utf8(
-      dst, dst_maxncpy, "%s %s", base_name, DATA_(layer_type_items[texture_type].name));
+  SNPRINTF_UTF8(dst, "%s %s", base_name, DATA_(layer_type_items[texture_type].name));
 }
 
 static wmOperatorStatus texture_paint_add_texture_paint_slot_invoke(bContext *C,
@@ -7176,7 +7174,7 @@ static wmOperatorStatus texture_paint_add_texture_paint_slot_invoke(bContext *C,
   /* Set default name. */
   char imagename[MAX_ID_NAME - 2];
   get_default_texture_layer_name_for_object(
-      ob, type, reinterpret_cast<char *>(&imagename), sizeof(imagename));
+      ob, type, MutableCStr(reinterpret_cast<char *>(&imagename), sizeof(imagename)));
   RNA_string_set(op->ptr, "name", imagename);
 
   /* Set default color. Copy the color from nodes, so it matches the existing material.

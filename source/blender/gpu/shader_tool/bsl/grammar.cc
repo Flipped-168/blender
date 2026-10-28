@@ -201,6 +201,13 @@ struct BSLParser {
         /* Supported because of explicit host shared struct members and C++ shared code. */
         return next().is_valid();
       }
+      if (match_if(':')) {
+        /* Inheritance. */
+        do {
+          match_if(Public, Private, Protected);
+          qualified_id();
+        } while (match_if(','));
+      }
     }
     {
       NODE(LocalScope);
@@ -218,6 +225,7 @@ struct BSLParser {
         case Hash:
           preprocessor_directive();
           break;
+        case Protected:
         case Private:
         case Public: {
           NODE(AccessSpecifier);
@@ -357,6 +365,12 @@ struct BSLParser {
   void declarator(bool optional_id_name = true, bool optional_bitfield = false)
   {
     NODE(Declarator);
+    if (peek() == '*') {
+      /* Note that '*' is parsed as multi-token. The parser code will check the number of stars.
+       * Doing the check here would make the error disappear because 'var_decl' is optional. */
+      NODE(Pointer);
+      match('*');
+    }
     bool par = match_if('(');
     /* NOTE: Require Ampersand after parenthesis to avoid mistaking the decl with a func call. */
     if (par || peek() == '&') {
@@ -396,7 +410,8 @@ struct BSLParser {
     }
     NODE(BitField);
     match_if(Colon);
-    expression(true);
+    /* Stop at a default member initializer, it is not part of the bit width. */
+    expression(true, true);
   }
 
   bool func_decl(bool expect_template_params = false, bool expect_body = true)
@@ -744,7 +759,10 @@ struct BSLParser {
           NODE(LocalVar);
           {
             NODE(IdQualified);
-            match(This);
+            {
+              NODE(Id);
+              match(This);
+            }
           }
           break;
         }

@@ -32,8 +32,9 @@
 #include "DNA_scene_types.h"
 #include "DNA_texture_types.h"
 
+#include "BLI_array.hh"
 #include "BLI_kdopbvh.hh"
-#include "BLI_kdtree.hh"
+#include "BLI_kdtree_new.hh"
 #include "BLI_linklist.hh"
 #include "BLI_listbase.hh"
 #include "BLI_math_base_safe.hh"
@@ -316,6 +317,29 @@ void BKE_particle_partdeflect_blend_read_data(BlendDataReader * /*reader*/, Part
 {
 }
 
+/** Struct size for the rule type, or zero for unknown types. */
+static size_t boid_rule_struct_size(const eBoidRuleType type)
+{
+  switch (type) {
+    case eBoidRuleType_None:
+    case eBoidRuleType_Separate:
+    case eBoidRuleType_Flock:
+      return sizeof(BoidRule);
+    case eBoidRuleType_Goal:
+    case eBoidRuleType_Avoid:
+      return sizeof(BoidRuleGoalAvoid);
+    case eBoidRuleType_AvoidCollision:
+      return sizeof(BoidRuleAvoidCollision);
+    case eBoidRuleType_FollowLeader:
+      return sizeof(BoidRuleFollowLeader);
+    case eBoidRuleType_AverageSpeed:
+      return sizeof(BoidRuleAverageSpeed);
+    case eBoidRuleType_Fight:
+      return sizeof(BoidRuleFight);
+  }
+  return 0;
+}
+
 static void particle_settings_blend_read_data(BlendDataReader *reader, ID *id)
 {
   ParticleSettings *part = id_cast<ParticleSettings *>(id);
@@ -352,7 +376,17 @@ static void particle_settings_blend_read_data(BlendDataReader *reader, ID *id)
     BLO_read_struct_list(reader, BoidState, &part->boids->states);
 
     for (BoidState &state : part->boids->states) {
-      BLO_read_struct_list(reader, BoidRule, &state.rules);
+      BLO_read_struct_list_with_type_size<BoidRule>(
+          reader, &state.rules, [](const BoidRule &rule) {
+            return std::max(boid_rule_struct_size(rule.type), sizeof(BoidRule));
+          });
+
+      /* Disable rules of unknown type, for upward compatibility. */
+      for (BoidRule &rule : state.rules) {
+        if (boid_rule_struct_size(rule.type) == 0) {
+          rule.type = eBoidRuleType_None;
+        }
+      }
 #if 0
       /* Not implemented yet. */
       BLO_read_struct_list(reader, BoidCondition, &state->conditions);
@@ -1032,7 +1066,7 @@ void psys_free(Object *ob, ParticleSystem *psys)
     psys->targets.free_no_destruct();
 
     BLI_bvhtree_free(psys->bvhtree);
-    kdtree_free<float3>(psys->tree);
+    MEM_delete(psys->tree);
 
     if (psys->fluid_springs) {
       MEM_delete(psys->fluid_springs);
@@ -2615,7 +2649,6 @@ void psys_find_parents(ParticleSimulationData *sim, const bool use_render_params
 {
   ParticleSystem *psys = sim->psys;
   ParticleSettings *part = sim->psys->part;
-  KDTree<float3> *tree;
   ChildParticle *cpa;
   ParticleTexture ptex;
   int p, totparent, totchild = sim->psys->totchild;
@@ -2630,7 +2663,8 @@ void psys_find_parents(ParticleSimulationData *sim, const bool use_render_params
   /* hard limit, workaround for it being ignored above */
   totparent = std::min(sim->psys->totpart, totparent);
 
-  tree = kdtree_new<float3>(totparent);
+  Array<float3> parent_orcos(totparent);
+  Vector<int> parents;
 
   for (p = 0, cpa = sim->psys->child; p < totparent; p++, cpa++) {
     psys_particle_on_emitter(sim->psmd,
@@ -2660,11 +2694,12 @@ void psys_find_parents(ParticleSimulationData *sim, const bool use_render_params
                     psys->cfra);
 
     if (ptex.exist >= psys_frand(psys, p + 24)) {
-      kdtree_insert<float3>(tree, p, orco);
+      parent_orcos[p] = orco;
+      parents.append(p);
     }
   }
 
-  kdtree_balance<float3>(tree);
+  const KDTree<float3> tree(parent_orcos, parents);
 
   for (; p < totchild; p++, cpa++) {
     psys_particle_on_emitter(sim->psmd,
@@ -2678,10 +2713,8 @@ void psys_find_parents(ParticleSimulationData *sim, const bool use_render_params
                              nullptr,
                              nullptr,
                              orco);
-    cpa->parent = kdtree_find_nearest<float3>(tree, orco, nullptr);
+    cpa->parent = tree.find_nearest(orco);
   }
-
-  kdtree_free<float3>(tree);
 }
 
 static bool psys_thread_context_init_path(ParticleThreadContext *ctx,

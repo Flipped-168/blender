@@ -371,7 +371,7 @@ bool SVGImporter::read(StringRefNull filepath)
 
   /* Create grease pencil object. */
   char filename[FILE_MAX];
-  BLI_path_split_file_part(abs_filepath, filename, ARRAY_SIZE(filename));
+  BLI_path_split_file_part(abs_filepath, filename);
   object_ = create_object(filename);
   if (object_ == nullptr) {
     BKE_report(context_.reports, RPT_ERROR, "Unable to create new object");
@@ -390,7 +390,7 @@ bool SVGImporter::read(StringRefNull filepath)
                                      context_.scene->unit.scale_length :
                                      1.0f;
   /* Overall scale for SVG coordinates in millimeters. */
-  const float svg_scale = 0.001f * scene_unit_scale * params_.scale;
+  const float svg_scale = 0.001f / scene_unit_scale * params_.scale;
   /* Grease pencil is rotated 90 degrees in X axis by default. */
   const float4x4 transform = math::scale(
       math::from_rotation<float4x4>(math::EulerXYZ(DEG2RAD(-90), 0, 0)), float3(svg_scale));

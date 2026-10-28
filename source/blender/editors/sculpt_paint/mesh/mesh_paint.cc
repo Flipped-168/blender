@@ -194,7 +194,7 @@ static void do_radial_symmetry(const Depsgraph &depsgraph,
   SculptSession &ss = *object.runtime->sculpt_session;
   const Mesh &mesh = *id_cast<Mesh *>(object.data);
 
-  if (!(mesh.symmetry & ME_RADIAL_SYMMETRY)) {
+  if (!(mesh.symmetry & ME_SYMMETRY_RADIAL)) {
     return;
   }
 
@@ -270,7 +270,7 @@ static float calc_radial_symmetry_feather(const Mesh &mesh,
 {
   float overlap = 0.0f;
 
-  if (!(mesh.symmetry & ME_RADIAL_SYMMETRY)) {
+  if (!(mesh.symmetry & ME_SYMMETRY_RADIAL)) {
     return 0.0f;
   }
 
@@ -385,7 +385,7 @@ static void do_radial_symmetry_with_tiling(const Depsgraph &depsgraph,
   SculptSession &ss = *object.runtime->sculpt_session;
   const Mesh &mesh = *id_cast<Mesh *>(object.data);
 
-  if (!(mesh.symmetry & ME_RADIAL_SYMMETRY)) {
+  if (!(mesh.symmetry & ME_SYMMETRY_RADIAL)) {
     return;
   }
 
@@ -491,7 +491,7 @@ IndexMask gather_brush_nodes(const Object &ob,
         if (node_ignore_fn(node)) {
           return false;
         }
-        return node_in_sphere(node, ss.cache->location_symm, ss.cache->radius_squared, true);
+        return node_in_sphere(node, ss.cache->location_symm, ss.cache->radius, true);
       });
     case PAINT_FALLOFF_SHAPE_TUBE:
       const DistRayAABB_Precalc ray_dist_precalc = dist_squared_ray_to_aabb_v3_precalc(
@@ -500,7 +500,7 @@ IndexMask gather_brush_nodes(const Object &ob,
         if (node_ignore_fn(node)) {
           return false;
         }
-        return node_in_cylinder(ray_dist_precalc, node, ss.cache->radius_squared, true);
+        return node_in_cylinder(ray_dist_precalc, node, ss.cache->radius, true);
       });
   }
   BLI_assert_unreachable();

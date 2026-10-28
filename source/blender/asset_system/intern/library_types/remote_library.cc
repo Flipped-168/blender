@@ -484,10 +484,9 @@ static void ping_asset_file_done_impl(const bContext &C,
   ed::asset::list::on_remote_assets_downloaded(*wm, library_url, local_file_abspath);
   ProgressTracker::file_finished(absolute_file_url, outcome);
 
-  /* Redraw drags, they may show some "asset being downloaded" info. */
-  if (!wm->runtime->drags.is_empty()) {
-    WM_event_add_mousemove(CTX_wm_window(&C));
-  }
+  /* In case this download was triggered by a `Download` overlay button drawn over an asset button,
+   * add a mousemove event so the asset button becomes active and can be dragged right away. */
+  WM_event_add_mousemove(CTX_wm_window(&C));
 }
 
 void RemoteLibraryLoadingStatus::ping_asset_file_download_succeeded(
@@ -1034,14 +1033,10 @@ std::string remote_library_cache_directory_path_from_url(const StringRef remote_
 std::string remote_library_cache_directory_path(const StringRefNull library_dirname)
 {
   char cache_path[FILE_MAXDIR];
-  BKE_appdir_folder_caches(cache_path, sizeof(cache_path));
+  BKE_appdir_folder_caches(cache_path);
 
   char library_cache_path[FILE_MAXDIR];
-  BLI_path_join(library_cache_path,
-                sizeof(library_cache_path),
-                cache_path,
-                "remote-assets",
-                library_dirname.c_str());
+  BLI_path_join(library_cache_path, cache_path, "remote-assets", library_dirname.c_str());
 
   return library_cache_path;
 }
@@ -1051,8 +1046,7 @@ std::string remote_library_asset_preview_path(const AssetRepresentation &asset)
   const StringRefNull library_cache_dir = asset.owner_asset_library().root_path();
 
   char thumbs_dir_path[FILE_MAXDIR];
-  BLI_path_join(
-      thumbs_dir_path, sizeof(thumbs_dir_path), library_cache_dir.c_str(), "_thumbs", "large");
+  BLI_path_join(thumbs_dir_path, library_cache_dir.c_str(), "_thumbs", "large");
 
   const std::optional<StringRefNull> preview_url = asset.online_asset_preview_url();
   if (!preview_url) {
@@ -1084,7 +1078,7 @@ std::string remote_library_asset_preview_path(const AssetRepresentation &asset)
 
   /* Finally, the path of the thumbnail itself. */
   char thumb_path[FILE_MAX];
-  BLI_path_join(thumb_path, sizeof(thumb_path), thumbs_dir_path, thumb_prefix, thumb_name + 2);
+  BLI_path_join(thumb_path, thumbs_dir_path, thumb_prefix, thumb_name + 2);
 
   return thumb_path;
 }
@@ -1099,7 +1093,6 @@ std::string remote_library_top_meta_file_path(const RemoteLibraryDefinitionRef &
 {
   char filepath[FILE_MAX];
   BLI_path_join(filepath,
-                sizeof(filepath),
                 library.cache_dirpath.c_str(),
                 asset_system::REMOTE_LIBRARY_TOP_META_FILE_NAME.c_str());
   return filepath;
