@@ -6,6 +6,7 @@
  * \ingroup spseq
  */
 
+#include <algorithm>
 #include <ranges>
 
 #include "CLG_log.h"
@@ -2883,19 +2884,14 @@ static Vector<Bounds<int>> ripple_gaps_get(const Scene *scene,
   return gaps;
 }
 
-static void ripple_delete_range(Scene *scene,
-                                ListBaseT<Strip> *seqbasep,
-                                const ListBaseT<SeqTimelineChannel> *channels,
-                                const seq::RippleRange &range,
-                                const eSeqRippleFlag ripple_flag)
+static void ripple_gaps_close(Scene *scene,
+                              ListBaseT<Strip> *seqbasep,
+                              const ListBaseT<SeqTimelineChannel> *channels,
+                              const seq::RippleRange &range,
+                              const eSeqRippleFlag ripple_flag)
 {
   const bool all_channels = (ripple_flag & SEQ_RIPPLE_ALL_CHANNELS) != 0;
-  const bool clear_ranges = (ripple_flag & SEQ_RIPPLE_CLEAR_RANGES) != 0;
   const bool ripple_markers = (ripple_flag & SEQ_RIPPLE_MARKERS) != 0;
-
-  if (clear_ranges) {
-    ripple_range_clear(scene, seqbasep, channels, range, all_channels);
-  }
 
   const Vector<Bounds<int>> gaps = ripple_gaps_get(scene, seqbasep, channels, range, all_channels);
   for (const Bounds<int> &gap : gaps | std::views::reverse) {
@@ -2961,7 +2957,11 @@ static wmOperatorStatus sequencer_ripple_delete_exec(bContext *C, wmOperator *op
   /* Every ripple delete changes the frames of later strips, so we must delete in reverse to avoid
    * invalidating range coordinates of later ranges. */
   for (const seq::RippleRange &range : ranges | std::views::reverse) {
-    ripple_delete_range(scene, seqbasep, channels, range, ripple_flag);
+    if ((ripple_flag & SEQ_RIPPLE_CLEAR_RANGES) != 0) {
+      ripple_range_clear(
+          scene, seqbasep, channels, range, (ripple_flag & SEQ_RIPPLE_ALL_CHANNELS) != 0);
+    }
+    ripple_gaps_close(scene, seqbasep, channels, range, ripple_flag);
   }
 
   /* Ripple back the playhead. */
@@ -3052,16 +3052,22 @@ static wmOperatorStatus sequencer_ripple_trim_exec(bContext *C, wmOperator *op)
 
   seq::prefetch_stop(scene);
 
-  /* Step 2: Calculate a single range to delete; we will ripple later strips by its duration. */
-  seq::RippleRange range{timeline_frame, timeline_frame, {}};
+  /* Step 2: Calculate a single range to delete (we will ripple later strips by its duration), as
+   * well as individual ranges which might be cleared by the "Clear Ranges" property. */
+  seq::RippleRange ripple_range{timeline_frame, timeline_frame, {}};
+  Vector<Bounds<int>> clear_ranges;
   for (Strip *strip : to_trim) {
     if (trim_left) {
-      range.start = min_ii(range.start, strip->left_handle());
+      ripple_range.start = min_ii(ripple_range.start, strip->left_handle());
+      clear_ranges.append(
+          {strip->left_handle(), min_ii(strip->right_handle(scene), timeline_frame)});
     }
     else {
-      range.end = max_ii(range.end, strip->right_handle(scene));
+      ripple_range.end = max_ii(ripple_range.end, strip->right_handle(scene));
+      clear_ranges.append(
+          {max_ii(strip->left_handle(), timeline_frame), strip->right_handle(scene)});
     }
-    range.channels.add(strip->channel);
+    ripple_range.channels.add(strip->channel);
   }
 
   /* Step 3: Trim and delete strips. */
@@ -3083,17 +3089,22 @@ static wmOperatorStatus sequencer_ripple_trim_exec(bContext *C, wmOperator *op)
     }
   }
 
-  if (!to_delete.is_empty()) {
-    for (Strip *strip : to_delete) {
-      seq::edit_flag_for_removal(scene, strip);
-    }
-    seq::edit_remove_flagged_strips(scene, seqbasep);
-    DEG_relations_tag_update(CTX_data_main(C));
-    WM_event_add_notifier(C, NC_SCENE | ND_ANIMCHAN, scene);
+  for (Strip *strip : to_delete) {
+    seq::edit_flag_for_removal(scene, strip);
   }
+  seq::edit_remove_flagged_strips(scene, seqbasep);
 
   /* Step 4: Close the gap left behind by rippling back later strips and the playhead. */
-  ripple_delete_range(scene, seqbasep, channels, range, ripple_flag);
+  if ((ripple_flag & SEQ_RIPPLE_CLEAR_RANGES) != 0) {
+    for (const Bounds<int> &clear_range : clear_ranges) {
+      ripple_range_clear(scene,
+                         seqbasep,
+                         channels,
+                         {clear_range.min, clear_range.max, ripple_range.channels},
+                         (ripple_flag & SEQ_RIPPLE_ALL_CHANNELS) != 0);
+    }
+  }
+  ripple_gaps_close(scene, seqbasep, channels, ripple_range, ripple_flag);
 
   if (scene->r.cfra != timeline_frame) {
     DEG_id_tag_update(&scene->id, ID_RECALC_FRAME_CHANGE);
@@ -3103,7 +3114,9 @@ static wmOperatorStatus sequencer_ripple_trim_exec(bContext *C, wmOperator *op)
   vse::sync_active_scene_and_time_with_scene_strip(*C);
 
   DEG_id_tag_update(&scene->id, ID_RECALC_SEQUENCER_STRIPS);
+  DEG_relations_tag_update(CTX_data_main(C));
   WM_event_add_notifier(C, NC_SCENE | ND_SEQUENCER, scene);
+  WM_event_add_notifier(C, NC_SCENE | ND_ANIMCHAN, scene);
   return OPERATOR_FINISHED;
 }
 
@@ -3137,7 +3150,8 @@ void SEQUENCER_OT_ripple_trim(wmOperatorType *ot)
                int(seq::Side::Left),
                "Side",
                "The side of the strips to trim to the current frame");
-  operator_properties_ripple(ot, SEQ_RIPPLE_ALL_CHANNELS | SEQ_RIPPLE_MARKERS);
+  operator_properties_ripple(
+      ot, SEQ_RIPPLE_ALL_CHANNELS | SEQ_RIPPLE_MARKERS | SEQ_RIPPLE_CLEAR_RANGES);
 }
 
 /** \} */
@@ -3150,32 +3164,29 @@ static wmOperatorStatus sequencer_offset_clear_exec(bContext *C, wmOperator * /*
 {
   Scene *scene = CTX_data_sequencer_scene(C);
   Editing *ed = seq::editing_get(scene);
-  Strip *strip;
   const ListBaseT<SeqTimelineChannel> *channels = seq::channels_displayed_get(
       seq::editing_get(scene));
 
   /* For effects, try to find a replacement input. */
-  for (strip = ed->current_strips()->first(); strip; strip = static_cast<Strip *>(strip->next)) {
-    if (seq::transform_is_locked(channels, strip)) {
+  for (Strip &strip : *ed->current_strips()) {
+    if (seq::transform_is_locked(channels, &strip)) {
       continue;
     }
 
-    if (!strip->is_effect() && (strip->flag & SEQ_SELECT)) {
-      strip->handles_set(scene, strip->content_start(), strip->content_end(scene));
+    if (!strip.is_effect() && (strip.flag & SEQ_SELECT)) {
+      strip.handles_set(scene, strip.content_start(), strip.content_end(scene));
     }
   }
 
   /* Update lengths, etc. */
-  strip = ed->current_strips()->first();
-  while (strip) {
-    seq::relations_invalidate_cache(scene, strip);
-    strip = strip->next;
+  for (Strip &strip : *ed->current_strips()) {
+    seq::relations_invalidate_cache(scene, &strip);
   }
 
   VectorSet<Strip *> cleared_strips;
-  for (strip = ed->current_strips()->first(); strip; strip = static_cast<Strip *>(strip->next)) {
-    if (!strip->is_effect() && (strip->flag & SEQ_SELECT)) {
-      cleared_strips.add(strip);
+  for (Strip &strip : *ed->current_strips()) {
+    if (!strip.is_effect() && (strip.flag & SEQ_SELECT)) {
+      cleared_strips.add(&strip);
     }
   }
   seq::transform_handle_overlap(scene, ed->current_strips(), cleared_strips, false);
@@ -3622,15 +3633,13 @@ static const EnumPropertyItem prop_side_lr_types[] = {
 
 static void swap_strips(Scene *scene, Strip *strip_a, Strip *strip_b)
 {
-  int gap = strip_b->left_handle() - strip_a->right_handle(scene);
-  int strip_a_start;
-  int strip_b_start;
-
-  strip_b_start = (strip_b->start - strip_b->left_handle()) + strip_a->left_handle();
+  const int gap = strip_b->left_handle() - strip_a->right_handle(scene);
+  const int strip_b_start = (strip_b->start - strip_b->left_handle()) + strip_a->left_handle();
   seq::transform_translate_strip(scene, strip_b, strip_b_start - strip_b->start);
   seq::relations_invalidate_cache(scene, strip_b);
 
-  strip_a_start = (strip_a->start - strip_a->left_handle()) + strip_b->right_handle(scene) + gap;
+  const int strip_a_start = (strip_a->start - strip_a->left_handle()) +
+                            strip_b->right_handle(scene) + gap;
   seq::transform_translate_strip(scene, strip_a, strip_a_start - strip_a->start);
   seq::relations_invalidate_cache(scene, strip_a);
 }
@@ -3638,32 +3647,30 @@ static void swap_strips(Scene *scene, Strip *strip_a, Strip *strip_b)
 static Strip *find_next_prev_strip(Scene *scene, Strip *test, seq::Side lr, int sel)
 {
   /* sel: 0==unselected, 1==selected, -1==don't care. */
-  Strip *strip, *best_strip = nullptr;
+  Strip *best_strip = nullptr;
   Editing *ed = seq::editing_get(scene);
 
-  int dist, best_dist;
-  best_dist = MAXFRAME * 2;
+  int best_dist = MAXFRAME * 2;
 
   if (ed == nullptr) {
     return nullptr;
   }
 
-  strip = ed->current_strips()->first();
-  while (strip) {
-    if ((strip != test) && (test->channel == strip->channel) &&
-        ((sel == -1) || (sel == (strip->flag & SEQ_SELECT))))
+  for (Strip &strip : *ed->current_strips()) {
+    if ((&strip != test) && (test->channel == strip.channel) &&
+        ((sel == -1) || (sel == (strip.flag & SEQ_SELECT))))
     {
-      dist = MAXFRAME * 2;
+      int dist = MAXFRAME * 2;
 
       switch (lr) {
         case seq::Side::Left:
-          if (strip->right_handle(scene) <= test->left_handle()) {
-            dist = test->right_handle(scene) - strip->left_handle();
+          if (strip.right_handle(scene) <= test->left_handle()) {
+            dist = test->right_handle(scene) - strip.left_handle();
           }
           break;
         case seq::Side::Right:
-          if (strip->left_handle() >= test->right_handle(scene)) {
-            dist = strip->left_handle() - test->right_handle(scene);
+          if (strip.left_handle() >= test->right_handle(scene)) {
+            dist = strip.left_handle() - test->right_handle(scene);
           }
           break;
         default:
@@ -3671,15 +3678,14 @@ static Strip *find_next_prev_strip(Scene *scene, Strip *test, seq::Side lr, int 
       }
 
       if (dist == 0) {
-        best_strip = strip;
+        best_strip = &strip;
         break;
       }
       if (dist < best_dist) {
         best_dist = dist;
-        best_strip = strip;
+        best_strip = &strip;
       }
     }
-    strip = static_cast<Strip *>(strip->next);
   }
   return best_strip; /* Can be nullptr. */
 }
@@ -4334,23 +4340,6 @@ void SEQUENCER_OT_change_scene(wmOperatorType *ot)
 /** \name Export Subtitles Operator
  * \{ */
 
-/** Comparison function suitable to be used with BLI_listbase_sort(). */
-static int strip_cmp_time_startdisp_channel(void * /*thunk*/, const void *a, const void *b)
-{
-  const Strip *strip_a = static_cast<const Strip *>(a);
-  const Strip *strip_b = static_cast<const Strip *>(b);
-
-  int strip_a_start = strip_a->left_handle();
-  int strip_b_start = strip_b->left_handle();
-
-  /* If strips have the same start frame favor the one with a higher channel. */
-  if (strip_a_start == strip_b_start) {
-    return strip_a->channel > strip_b->channel;
-  }
-
-  return (strip_a_start > strip_b_start);
-}
-
 static wmOperatorStatus sequencer_export_subtitles_invoke(bContext *C,
                                                           wmOperator *op,
                                                           const wmEvent * /*event*/)
@@ -4362,25 +4351,6 @@ static wmOperatorStatus sequencer_export_subtitles_invoke(bContext *C,
   return OPERATOR_RUNNING_MODAL;
 }
 
-struct Seq_get_text_cb_data {
-  ListBaseT<Strip> *text_seq;
-  Scene *scene;
-};
-
-static bool strip_get_text_strip_cb(Strip *strip, void *user_data)
-{
-  Seq_get_text_cb_data *cd = static_cast<Seq_get_text_cb_data *>(user_data);
-  Editing *ed = seq::editing_get(cd->scene);
-  ListBaseT<SeqTimelineChannel> *channels = seq::channels_displayed_get(ed);
-  /* Only text strips that are not muted and don't end with negative frame. */
-  if ((strip->type == STRIP_TYPE_TEXT) && !seq::render_is_muted(channels, strip) &&
-      (strip->right_handle(cd->scene) > cd->scene->r.sfra))
-  {
-    BLI_addtail(cd->text_seq, MEM_dupalloc(strip));
-  }
-  return true;
-}
-
 static wmOperatorStatus sequencer_export_subtitles_exec(bContext *C, wmOperator *op)
 {
   if ((op->flag & OP_IS_INVOKE) && !WM_operator_poll_or_report_error(C, op->type, op->reports)) {
@@ -4388,11 +4358,9 @@ static wmOperatorStatus sequencer_export_subtitles_exec(bContext *C, wmOperator 
   }
 
   Scene *scene = CTX_data_sequencer_scene(C);
-  Strip *strip, *strip_next;
   Editing *ed = seq::editing_get(scene);
-  ListBaseT<Strip> text_seq = {nullptr};
+  Vector<Strip *> text_strips;
   int iter = 1; /* Sequence numbers in `.srt` files are 1-indexed. */
-  FILE *file;
   char filepath[FILE_MAX];
 
   if (!RNA_struct_property_is_set_ex(op->ptr, "filepath", false)) {
@@ -4417,21 +4385,34 @@ static wmOperatorStatus sequencer_export_subtitles_exec(bContext *C, wmOperator 
   }
 
   if (ed != nullptr) {
-    Seq_get_text_cb_data cb_data = {&text_seq, scene};
-    seq::foreach_strip(&ed->seqbase, strip_get_text_strip_cb, &cb_data);
+    const ListBaseT<SeqTimelineChannel> *channels = seq::channels_displayed_get(ed);
+    seq::foreach_strip(&ed->seqbase, [&](Strip *strip) {
+      /* Only text strips that are not muted and don't end with negative frame. */
+      if (strip->type == STRIP_TYPE_TEXT && !seq::render_is_muted(channels, strip) &&
+          strip->right_handle(scene) > scene->r.sfra)
+      {
+        text_strips.append(strip);
+      }
+      return true;
+    });
   }
 
-  if (text_seq.is_empty()) {
+  if (text_strips.is_empty()) {
     BKE_report(op->reports, RPT_ERROR, "No subtitles (text strips) to export");
     return OPERATOR_CANCELLED;
   }
 
-  BLI_listbase_sort_r(&text_seq, strip_cmp_time_startdisp_channel, nullptr);
+  std::stable_sort(text_strips.begin(), text_strips.end(), [](const Strip *a, const Strip *b) {
+    if (a->left_handle() == b->left_handle()) {
+      return a->channel < b->channel;
+    }
+    return a->left_handle() < b->left_handle();
+  });
 
   /* Open and write file. */
-  file = BLI_fopen(filepath, "w");
+  FILE *file = BLI_fopen(filepath, "w");
 
-  for (strip = text_seq.first(); strip; strip = strip_next) {
+  for (const Strip *strip : text_strips) {
     TextVars *data = static_cast<TextVars *>(strip->effectdata);
     char timecode_str_start[32];
     char timecode_str_end[32];
@@ -4454,9 +4435,6 @@ static wmOperatorStatus sequencer_export_subtitles_exec(bContext *C, wmOperator 
             timecode_str_start,
             timecode_str_end,
             data->text_ptr);
-
-    strip_next = static_cast<Strip *>(strip->next);
-    MEM_delete(strip);
   }
 
   fclose(file);

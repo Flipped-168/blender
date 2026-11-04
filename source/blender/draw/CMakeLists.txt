@@ -392,7 +392,7 @@ set(SHADER_SRC_EEVEE
   engines/eevee/shaders/eevee_attributes_world_lib.bsl.hh
   engines/eevee/shaders/eevee_bxdf.bsl.hh
   engines/eevee/shaders/eevee_bxdf_diffuse.bsl.hh
-  engines/eevee/shaders/eevee_bxdf_lut.bsl.hh
+  engines/eevee/shaders/eevee_bxdf_lut_gen.bsl.hh
   engines/eevee/shaders/eevee_bxdf_lut_lib.bsl.hh
   engines/eevee/shaders/eevee_bxdf_microfacet.bsl.hh
   engines/eevee/shaders/eevee_bxdf_oren_nayar.bsl.hh
@@ -645,8 +645,7 @@ set(SHADER_SRC_OVERLAY
   engines/overlay/shaders/overlay_viewer_attribute_mesh_vert.glsl
   engines/overlay/shaders/overlay_viewer_attribute_pointcloud_vert.glsl
   engines/overlay/shaders/overlay_volume.bsl.hh
-  engines/overlay/shaders/overlay_wireframe_frag.glsl
-  engines/overlay/shaders/overlay_wireframe_vert.glsl
+  engines/overlay/shaders/overlay_wireframe.bsl.hh
   engines/overlay/shaders/overlay_xray_fade.bsl.hh
 
   engines/overlay/overlay_shader_shared.hh
