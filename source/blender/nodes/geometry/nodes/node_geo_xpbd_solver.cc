@@ -1127,16 +1127,14 @@ class XpbdSolverStep {
         BLI_assert(math::is_unit(math::cross(edge_direction_local, edge_normal_local)));
 
         /* Use geometric average as edge friction coefficient. */
-        const float static_friction = math::sqrt(
-            math::square(this->compute_contact_friction(geo_data.static_frictions[point0],
-                                                        collider.friction)) +
-            math::square(this->compute_contact_friction(geo_data.static_frictions[point1],
-                                                        collider.friction)));
-        const float dynamic_friction = math::sqrt(
-            math::square(this->compute_contact_friction(geo_data.dynamic_frictions[point0],
-                                                        collider.friction)) +
-            math::square(this->compute_contact_friction(geo_data.dynamic_frictions[point1],
-                                                        collider.friction)));
+        const float static_friction = this->compute_contact_friction(
+            geo_data.static_frictions[point0],
+            geo_data.static_frictions[point1],
+            collider.friction);
+        const float dynamic_friction = this->compute_contact_friction(
+            geo_data.dynamic_frictions[point0],
+            geo_data.dynamic_frictions[point1],
+            collider.friction);
 
         const int contact_i = r_edge_contacts.point_pairs.append_and_get_index({point0, point1});
         r_edge_contacts.point_radii.append({radius_local0, radius_local1});
@@ -2925,7 +2923,15 @@ class XpbdSolverStep {
 
   float compute_contact_friction(const float point_friction, const float collider_friction) const
   {
-    return math::sqrt(point_friction * collider_friction);
+    /* Friction values stored in attributes may be negative which would lead to NaN. */
+    return math::sqrt(std::max(point_friction, 0.0f) * std::max(collider_friction, 0.0f));
+  }
+
+  float compute_contact_friction(const float point0_friction,
+                                 const float point1_friction,
+                                 const float collider_friction) const
+  {
+    return math::pow(point0_friction * point1_friction * collider_friction, 1.0f / 3.0f);
   }
 
   float get_max_search_distance(const float delta_time)
