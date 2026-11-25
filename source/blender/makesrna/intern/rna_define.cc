@@ -6,6 +6,7 @@
  * \ingroup RNA
  */
 
+#include <algorithm>
 #include <cctype>
 #include <cfloat>
 #include <climits>
@@ -2854,6 +2855,12 @@ void RNA_def_property_enum_sdna(PropertyRNA *prop, const char *structname, const
       else if (dp->dnatype == "short") {
         eprop->defaultvalue = *(const short *)dp->dnadefaultdata;
       }
+      else if (dp->dnatype == "uchar") {
+        eprop->defaultvalue = *(const uchar *)dp->dnadefaultdata;
+      }
+      else if (dp->dnatype == "ushort") {
+        eprop->defaultvalue = *(const ushort *)dp->dnadefaultdata;
+      }
       else if (dp->dnatype == "int") {
         eprop->defaultvalue = *(const int *)dp->dnadefaultdata;
       }
@@ -4907,8 +4914,10 @@ void RNA_enum_item_add(EnumPropertyItem **items, int *totitem, const EnumPropert
   }
   else if (tot >= 8 && (tot & (tot - 1)) == 0) {
     /* Power of two > 8. */
-    *items = static_cast<EnumPropertyItem *>(
-        MEM_realloc_zeroed_id(*items, sizeof(EnumPropertyItem) * tot * 2, __func__));
+    EnumPropertyItem *new_items = MEM_new_array_zeroed<EnumPropertyItem>(tot * 2, __func__);
+    std::copy_n(*items, tot, new_items);
+    MEM_delete(*items);
+    *items = new_items;
 #ifndef NDEBUG
     memset((*items) + tot, 0xff, sizeof(EnumPropertyItem) * tot);
 #endif
