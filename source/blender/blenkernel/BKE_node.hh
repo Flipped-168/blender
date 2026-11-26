@@ -158,6 +158,12 @@ using SocketMakeNodesInputSrnaFunction = void (*)(const bNodeTree &tree,
                                                   StructRNA &srna,
                                                   const bNodeTreeInterfaceSocket &io_socket,
                                                   nodes::GeneratedTreeSrnaData &r_generated);
+struct UpdatePropsOnInterfaceChangeParams {
+  const bNodeTree &tree;
+  const bNodeTreeInterfaceSocket &io_socket;
+  PointerRNA &props;
+};
+using UpdatePropsOnInterfaceChangeFunction = void (*)(const UpdatePropsOnInterfaceChangeParams &p);
 struct GetSocketInferenceValueParams {
   const bNodeTree &tree;
   const bNodeTreeInterfaceSocket &io_socket;
@@ -246,6 +252,8 @@ struct bNodeSocketType {
   SocketMakeNodesInputSrnaFunction make_geometry_nodes_input_srna = nullptr;
   SocketMakeNodesInputSrnaFunction make_compositor_nodes_input_srna = nullptr;
   SocketMakeNodesInputSrnaFunction make_scene_compositor_effect_input_srna = nullptr;
+
+  UpdatePropsOnInterfaceChangeFunction update_props_on_interface_change__geometry_nodes = nullptr;
 };
 
 using NodeInitExecFunction = void *(*)(bNodeExecContext * context,
@@ -591,7 +599,8 @@ struct bNodeTreeType {
   bool (*validate_link)(eNodeSocketDatatype from, eNodeSocketDatatype to) = nullptr;
 
   /* Check if the socket type is valid for this tree type. */
-  bool (*valid_socket_type)(bNodeTreeType *ntreetype, bNodeSocketType *socket_type) = nullptr;
+  bool (*valid_socket_type)(bNodeTreeType *ntreetype,
+                            const bNodeSocketType *socket_type) = nullptr;
 
   /**
    * If true, then some UI elements related to building node groups will be hidden.

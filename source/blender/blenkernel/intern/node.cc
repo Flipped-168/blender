@@ -554,15 +554,13 @@ static void node_foreach_working_space_color(ID *id, const IDTypeForeachColorFun
   }
 
   for (bNodeTreeInterfaceSocket *socket : ntree->interface_inputs()) {
-    const bke::bNodeSocketType *typeinfo = socket->socket_typeinfo();
-    if (typeinfo && typeinfo->type == SOCK_RGBA && socket->socket_data) {
+    if (socket->socket_typeinfo().type == SOCK_RGBA && socket->socket_data) {
       bNodeSocketValueRGBA *rgba = static_cast<bNodeSocketValueRGBA *>(socket->socket_data);
       fn.single(rgba->value);
     }
   }
   for (bNodeTreeInterfaceSocket *socket : ntree->interface_outputs()) {
-    const bke::bNodeSocketType *typeinfo = socket->socket_typeinfo();
-    if (typeinfo && typeinfo->type == SOCK_RGBA && socket->socket_data) {
+    if (socket->socket_typeinfo().type == SOCK_RGBA && socket->socket_data) {
       bNodeSocketValueRGBA *rgba = static_cast<bNodeSocketValueRGBA *>(socket->socket_data);
       fn.single(rgba->value);
     }
@@ -3503,6 +3501,8 @@ std::optional<UString> node_static_socket_type(const int type,
           return "NodeSocketFloatFrequency"_ustr;
         case PROP_PIXEL:
           return "NodeSocketFloatPixel"_ustr;
+        case PROP_WAVELENGTH_UM:
+          return "NodeSocketFloatWavelengthUm"_ustr;
         case PROP_NONE:
         default:
           return "NodeSocketFloat"_ustr;
@@ -3719,6 +3719,8 @@ std::optional<StringRefNull> node_static_socket_interface_type_new(
           return "NodeTreeInterfaceSocketFloatFrequency";
         case PROP_PIXEL:
           return "NodeTreeInterfaceSocketFloatPixel";
+        case PROP_WAVELENGTH_UM:
+          return "NodeTreeInterfaceSocketFloatWavelengthUm";
         case PROP_NONE:
         default:
           return "NodeTreeInterfaceSocketFloat";
