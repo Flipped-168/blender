@@ -12,7 +12,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          lfs: false
       - name: Git config
         run: |
           git config user.name "github-actions[bot]"
@@ -24,28 +23,25 @@ jobs:
       - name: Merge upstream (ours strategy)
         run: |
           git merge upstream/HEAD --no-edit -X ours || git merge FETCH_HEAD --no-edit -X ours || true
-          git diff --name-only --diff-filter=U | while IFS= read -r f; do
-            case "$f" in
-              .github/workflows/sync-upstream.yml) ;;
-              .github/workflows/*) git rm -f "$f" ;;
-              *) git checkout --ours -- "$f" || true ;;
-            esac
-          done
-      - name: Post-merge disable LFS (upstream .gitattributes re-imported)
+      - name: Resolve conflicts
         run: |
-          git lfs uninstall || true
-          git lfs install --skip-smudge || true
-          rm -f .gitattributes
-          git rm -f .gitattributes || true
-          git config --unset-all lfs.url || true
-          git config lfs.transfer.enableAliases false || true
-          find .git/hooks -type f \( -name "post-checkout" -o -name "post-commit" -o -name "post-merge" -o -name "pre-push" \) -delete 2>/dev/null || true
-      - name: Keep only our workflow
+          for f in $(git diff --name-only --diff-filter=U); do
+            if [ "$f" = ".github/workflows/sync-upstream.yml" ]; then
+              git checkout --ours -- "$f" 2>/dev/null || true
+              git add "$f"
+            elif echo "$f" | grep -q '^\.github/workflows/'; then
+              git rm -f "$f" || true
+            else
+              git checkout --ours -- "$f"
+              git add "$f"
+            fi
+          done
+          git commit -m "chore: resolve merge conflicts" --allow-empty || true
+      - name: Preserve fork workflow
         run: |
           mkdir -p .github/workflows
           find .github/workflows -type f ! -name "sync-upstream.yml" -delete
-      - name: Commit and push
-        run: |
-          git add -f .github/workflows .gitattributes || true
+          git add -f .github/workflows
           git commit -m "chore: preserve fork sync workflow" --allow-empty
-          git push
+      - name: Push
+        run: git push
